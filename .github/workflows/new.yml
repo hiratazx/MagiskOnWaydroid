@@ -409,8 +409,9 @@ jobs:
         shell: bash
       - name: Expand images
         run: |
+          mkdir gapps
           e2fsck -yf ${{ matrix.arch }}/system.img
-          resize2fs ${{ matrix.arch }}/system.img + $(du -sB512 ${{ matrix.arch }}/system.img | cut -f1) ))s
+          resize2fs ${{ matrix.arch }}/system.img $(( $(du -sB512 gapps | cut -f1) + $(du -sB512 ${{ matrix.arch }}/system.img | cut -f1) ))s
       - name: Expand vendor
         run: |
           e2fsck -yf ${{ matrix.arch }}/vendor.img

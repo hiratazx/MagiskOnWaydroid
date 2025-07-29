@@ -34,7 +34,6 @@ on:
         - 25.2
         - 26.1
         - canary
-        - delta
       gapps_variant:
         description: "Variants of gapps"
         required: true
@@ -97,9 +96,6 @@ jobs:
                 break;
               case "canary":
                 matrix.magisk_apk = ["canary"];
-                break;
-              case "delta":
-                matrix.magisk_apk = ["delta"];
                 break;
               default:
                 matrix.magisk_apk = ["25.2"];
@@ -294,8 +290,6 @@ jobs:
               magisk_apk = "https://github.com/topjohnwu/Magisk/releases/download/v26.1/Magisk-v26.1.apk"
           if magisk_apk == "canary":
               magisk_apk = "https://raw.githubusercontent.com/topjohnwu/magisk-files/canary/app-debug.apk"
-          if magisk_apk == "delta":
-              magisk_apk = "https://huskydg.github.io/magisk-files/app-release.apk"
           if magisk_apk == "stable" or magisk_apk == "beta":
               magisk_apk = json.loads(requests.get(f"https://github.com/topjohnwu/magisk-files/raw/master/{magisk_apk}.json").content)['magisk']['link']
           

@@ -94,6 +94,20 @@ jobs:
             }
             core.setOutput("matrix",JSON.stringify(matrix));
 
+            let and_ver = "${{ github.event.inputs.and_ver }}"
+            switch ( and_ver ) {
+              case "11":
+                matrix.and_ver = ["11"];
+                break;
+              case "13":
+                matrix.and_ver = ["13"];
+                break;
+              default:
+                // If no specific and_ver is provided as input, default to building both
+                matrix.and_ver = ["11", "13"];
+                break;
+            }
+
   build:
     runs-on: ubuntu-22.04
     needs: matrix

@@ -134,79 +134,139 @@ jobs:
       - name: Download WSA
         shell: python
         run: |
-          import requests
-          from bs4 import BeautifulSoup
-          import re
+          import urllib.request
           import zipfile
           import os
-          import urllib.request
+          import sys # Import sys to exit the script on error
 
-          arch = "${{ matrix.arch }}"
+          arch = "${{ matrix.arch }}" # Still need this for file naming and extraction
 
-          #release_type_map = {"retail": "Retail", "release preview": "RP", "insider slow": "WIS", "insider fast": "WIF"}
-          #release_type_map = "WIS"
-          #release_type = release_type_map["${{ matrix.release_type }}"] if "${{ matrix.release_type }}" != "" else "Retail"	
-          release_type = "WIS"
-          res = requests.post("https://store.rg-adguard.net/api/GetFiles", f"type=CategoryId&url=858014f3-3934-4abe-8078-4aa193e74ca8&ring={release_type}&lang=en-US", headers={	
-              "content-type": "application/x-www-form-urlencoded"	
-          }, verify=False) # source site has expired cert
-          
-          html = BeautifulSoup(res.content, "lxml")
+          # Define the direct download links
+          xaml_link = "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/baf6388f-cf6b-4980-a220-0f1cc8c2f857?P1=1753785429&P2=404&P3=2&P4=S6wHAx%2b2aXvyiz7eN5wG5t5BFt%2fie889UUyecimhuTfRp0dQIG7Uhk%2fjuGEDEdvq%2bvMXMAXPRHZnybuKqsAcxA%3d%3d"
+          vclibs_link = "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/27ca12bc-f81d-45ff-95d0-12ad79f15735?P1=1753785470&P2=404&P3=2&P4=HTfv4jwO0RJp%2f2kKPl8y%2fFTAovAFbmypypDcOVHiV5HgUjWny9%2fmyiqn9Eixnhw%2fS5kaQTqrPxFT3JY9RpoAGg%3d%3d"
+          wsa_link = "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/c7e4a2d1-eec9-41f7-9c20-04394821d8da?P1=1753813116&P2=404&P3=2&P4=VVVeQ7aYFXwy%2fYAwFYGnNHwhXANJItXGvRnjQ6Nj9cCw8gpUDpHS3svhr71e%2bOkJT5t3Aq%2fwlv0QX1N4vzkNZw%3d%3d"
 
-          a = html.find("a", string=re.compile(f"Microsoft\.UI\.Xaml\..*_{arch}_.*\.appx"))
-          link = a["href"]
-          print(f"downloading link: {link}", flush=True)
-          out_file = "xaml.appx"
-          if not os.path.isfile(out_file):
-              urllib.request.urlretrieve(link, out_file)
+          print("Starting direct downloads...", flush=True)
 
-          a = html.find("a", string=re.compile(f"Microsoft\.VCLibs\..*_{arch}_.*\.appx"))
-          link = a["href"]
-          print(f"downloading link: {link}", flush=True)
-          out_file = "vclibs.appx"
-          if not os.path.isfile(out_file):
-              urllib.request.urlretrieve(link, out_file)
+          # --- Download Microsoft.UI.Xaml ---
+          out_file_xaml = "xaml.appx"
+          print(f"Downloading UI XAML: {xaml_link}", flush=True)
+          try:
+              if not os.path.isfile(out_file_xaml):
+                  urllib.request.urlretrieve(xaml_link, out_file_xaml)
+              print(f"Downloaded {out_file_xaml}", flush=True)
+          except Exception as e:
+              print(f"Error downloading UI XAML: {e}", flush=True)
+              sys.exit(1)
 
-          a = html.find("a", string=re.compile("MicrosoftCorporationII\.WindowsSubsystemForAndroid_.*\.msixbundle"))
-          link = a["href"]
-          print(f"downloading link: {link}", flush=True)
-          out_file = "wsa.zip"
-          if not os.path.isfile(out_file):
-              urllib.request.urlretrieve(link, out_file)
+          # --- Download Microsoft.VCLibs ---
+          out_file_vclibs = "vclibs.appx"
+          print(f"Downloading VCLibs: {vclibs_link}", flush=True)
+          try:
+              if not os.path.isfile(out_file_vclibs):
+                  urllib.request.urlretrieve(vclibs_link, out_file_vclibs)
+              print(f"Downloaded {out_file_vclibs}", flush=True)
+          except Exception as e:
+              print(f"Error downloading VCLibs: {e}", flush=True)
+              sys.exit(1)
 
+          # --- Download WSA MSIXBundle ---
+          out_file_wsa = "wsa.zip" # Keep it as .zip for consistency with your existing unzipping logic
+          print(f"Downloading WSA: {wsa_link}", flush=True)
+          try:
+              if not os.path.isfile(out_file_wsa):
+                  urllib.request.urlretrieve(wsa_link, out_file_wsa)
+              print(f"Downloaded {out_file_wsa}", flush=True)
+          except Exception as e:
+              print(f"Error downloading WSA: {e}", flush=True)
+              sys.exit(1)
+
+          print("All files downloaded successfully.", flush=True)
+
+          # --- Unzip WSA MSIXBundle ---
           zip_name = ""
-          with zipfile.ZipFile(out_file) as zip:
-              for f in zip.filelist:
-                  if arch in f.filename.lower():
-                      zip_name = f.filename
-                      if not os.path.isfile(zip_name):
-                          print(f"unzipping to {zip_name}", flush=True)
-                          zip.extract(f)
-                          ver_no = zip_name.split("_")
+          try:
+              with zipfile.ZipFile(out_file_wsa) as zip_file:
+                  # Find the correct arch-specific file within the msixbundle
+                  for f in zip_file.filelist:
+                      if arch in f.filename.lower() and f.filename.endswith(".msix"): # Usually the main package is .msix
+                          zip_name = f.filename
+                          print(f"Found main WSA package: {zip_name}", flush=True)
+                          break # Found the main package, no need to continue
+
+                  if not zip_name:
+                      print(f"Error: Could not find the main WSA package for arch {arch} within {out_file_wsa}. Exiting.", flush=True)
+                      sys.exit(1)
+
+                  if not os.path.isfile(zip_name):
+                      print(f"Unzipping main WSA package to {zip_name}", flush=True)
+                      zip_file.extract(zip_name)
+                      # Extract version and release number
+                      ver_no = zip_name.split("_")
+                      if len(ver_no) > 1:
                           ver = ver_no[1]
                           with open(os.environ['GITHUB_ENV'], 'a') as g:
                               g.write(f'WSA_VER={ver}\n')
+                          print(f"Set WSA_VER={ver}", flush=True)
+                      if len(ver_no) > 3:
                           rel = ver_no[3].split(".")
                           rell = str(rel[0])
                           with open(os.environ['GITHUB_ENV'], 'a') as g:
                               g.write(f'WSA_REL={rell}\n')
-                  if 'language' in f.filename.lower() or 'scale' in f.filename.lower():
-                      name = f.filename.split("-", 1)[1].split(".")[0]
-                      zip.extract(f)
-                      with zipfile.ZipFile(f.filename) as l:
-                          for g in l.filelist:
-                              if g.filename == 'resources.pri':
-                                  g.filename = f'{name}.pri'
-                                  l.extract(g, 'pri')
-                                  print(f"extract resource pack {g.filename}")
-                              elif g.filename == 'AppxManifest.xml':
-                                  g.filename = f'{name}.xml'
-                                  l.extract(g, 'xml')
+                          print(f"Set WSA_REL={rell}", flush=True)
 
-          with zipfile.ZipFile(zip_name) as zip:
-              if not os.path.isdir(arch):
-                  print(f"unzipping from {zip_name}", flush=True)
-                  zip.extractall(arch)
+                  # Extract language and scale resources
+                  for f in zip_file.filelist:
+                      if 'language' in f.filename.lower() or 'scale' in f.filename.lower():
+                          print(f"Extracting resource file: {f.filename}", flush=True)
+                          zip_file.extract(f)
+                          # These are usually nested zip/appx files, so we open them
+                          try:
+                              with zipfile.ZipFile(f.filename) as inner_zip:
+                                  name = f.filename.split("-", 1)[1].split(".")[0] # e.g., "language_en-us"
+                                  for g in inner_zip.filelist:
+                                      if g.filename == 'resources.pri':
+                                          new_pri_name = f'pri/{name}.pri'
+                                          if not os.path.isdir('pri'):
+                                              os.makedirs('pri')
+                                          inner_zip.extract(g, 'pri')
+                                          # Rename the extracted file to include the language/scale info
+                                          os.rename(os.path.join('pri', g.filename), new_pri_name)
+                                          print(f"Extracted resource pack {new_pri_name}", flush=True)
+                                      elif g.filename == 'AppxManifest.xml':
+                                          new_xml_name = f'xml/{name}.xml'
+                                          if not os.path.isdir('xml'):
+                                              os.makedirs('xml')
+                                          inner_zip.extract(g, 'xml')
+                                          # Rename the extracted file to include the language/scale info
+                                          os.rename(os.path.join('xml', g.filename), new_xml_name)
+                                          print(f"Extracted AppxManifest {new_xml_name}", flush=True)
+                          except zipfile.BadZipFile:
+                              print(f"Warning: Could not open {f.filename} as a zip file. Skipping inner extraction.", flush=True)
+                          finally:
+                              if os.path.exists(f.filename):
+                                  os.remove(f.filename) # Clean up the extracted inner appx/zip
+
+
+          except Exception as e:
+              print(f"Error during WSA unzipping process: {e}", flush=True)
+              sys.exit(1)
+
+          # --- Final Extraction of the main WSA package ---
+          if zip_name: # Only proceed if zip_name was successfully found
+              try:
+                  with zipfile.ZipFile(zip_name) as final_zip:
+                      if not os.path.isdir(arch):
+                          print(f"Final unzipping of {zip_name} to directory {arch}", flush=True)
+                          final_zip.extractall(arch)
+                      else:
+                          print(f"Directory {arch} already exists, skipping final extraction.", flush=True)
+              except Exception as e:
+                  print(f"Error during final extraction of {zip_name}: {e}", flush=True)
+                  sys.exit(1)
+          else:
+              print("Skipping final extraction: main WSA package not found.", flush=True)
+
 
           print("done", flush=True)
       - name: Download Magisk

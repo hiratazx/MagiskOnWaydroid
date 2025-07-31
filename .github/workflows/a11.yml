@@ -1,4 +1,4 @@
-name: Modify Waydroid
+name: Modify Waydroid (A11)
 on:
   push:
     paths-ignore:
@@ -34,22 +34,6 @@ on:
         - 25.2
         - 26.1
         - canary
-      gapps_variant:
-        description: "Variants of gapps"
-        required: true
-        default: "pico"
-        type: choice
-        options:
-        - none
-        - super
-        - stock
-        - full
-        - mini
-        - micro
-        - nano
-        - pico
-        - tvstock
-        - tvmini
       root_sol:
         description: "Root solution"
         required: true
@@ -99,12 +83,6 @@ jobs:
                 break;
               default:
                 matrix.magisk_apk = ["25.2"];
-                break;
-            }
-            let gapps_variant = "${{ github.event.inputs.gapps_variant }}"
-            switch ( gapps_variant ) {
-              default:
-                matrix.gapps_variant = ["pico"];
                 break;
             }
             let root_sol = "${{ github.event.inputs.root_sol }}"
@@ -379,36 +357,6 @@ jobs:
                 extract_as(zip, f"lib/{ abi_map['x64'][0] }/libmagiskinit.so", "magiskpolicy", ".")
               extract_as(zip, f"assets/boot_patch.sh", "boot_patch.sh", "magisk")
               extract_as(zip, f"assets/util_functions.sh", "util_functions.sh", "magisk")
-      - name: Download OpenGApps
-        if: ${{ matrix.gapps_variant != 'none' && matrix.gapps_variant != '' }}
-        shell: python
-        run: |
-          import requests
-          import zipfile
-          import os
-          import urllib.request
-          import json
-          import re
-
-          arch = "${{ matrix.arch }}"
-          variant = "${{ matrix.gapps_variant }}"
-          abi_map = {"x64" : "x86_64", "arm64": "arm64"}
-          try:
-              res = requests.get(f"https://api.opengapps.org/list")
-              j = json.loads(res.content)
-              link = {i["name"]: i for i in j["archs"][abi_map[arch]]["apis"]["11.0"]["variants"]}[variant]["zip"]
-          except Exception:
-              print("Failed to fetch from opengapps api, fallbacking to sourceforge rss...")
-              res = requests.get(f'https://sourceforge.net/projects/opengapps/rss?path=/{abi_map[arch]}&limit=100')
-              link = re.search(f'https://.*{abi_map[arch]}/.*{variant}.*\.zip/download', res.text).group().replace('.zip/download', '.zip').replace('sourceforge.net/projects/opengapps/files', 'downloads.sourceforge.net/project/opengapps')
-
-          print(f"downloading link: {link}", flush=True)
-
-          out_file = "gapps.zip"
-
-          if not os.path.isfile(out_file):
-              urllib.request.urlretrieve(link, out_file)
-          print("done", flush=True)
       - name: Replace system and vendor
         run: |
           rm -rf ${{ matrix.arch }}/{system,vendor}.img
@@ -417,11 +365,10 @@ jobs:
           wget -q https://sourceforge.net/projects/waydroid/files/images/vendor/waydroid_x86_64/lineage-18.1-20230422-MAINLINE-waydroid_x86_64-vendor.zip/download -O vendor.zip
           7z x system.zip -o${{ matrix.arch }}/
           7z x vendor.zip -o${{ matrix.arch }}/
-      - name: Extract GApps and expand images
+      - name: Expand images
         if: ${{ matrix.gapps_variant != 'none' && matrix.gapps_variant != '' }}
         run: |
           mkdir gapps
-          unzip -p gapps.zip {Core,GApps}/'*.lz' | tar --lzip -C gapps -xvf - -i --strip-components=2 --exclude='setupwizardtablet-x86_64' --exclude='packageinstallergoogle-all' --exclude='speech-common' --exclude='markup-lib-arm' --exclude='markup-lib-arm64' --exclude='markup-all' --exclude='setupwizarddefault-x86_64' --exclude='pixellauncher-all' --exclude='pixellauncher-common'
           e2fsck -yf ${{ matrix.arch }}/system.img
           resize2fs ${{ matrix.arch }}/system.img $(( $(du -sB512 gapps | cut -f1) + $(du -sB512 ${{ matrix.arch }}/system.img | cut -f1) ))s
       - name: Expand vendor
@@ -434,14 +381,8 @@ jobs:
           sudo mkdir userdata
           sudo mount -o loop ${{ matrix.arch }}/system.img system
           sudo mount -o loop ${{ matrix.arch }}/vendor.img system/vendor
-          sudo mv system/product system/product_ln
-          sudo mkdir system/product
-          sudo mount --bind $(pwd)/system/system/product $(pwd)/system/product
-          ls system/product
-          sudo mv system/system_ext system/system_ext_ln
-          sudo mkdir system/system_ext
-          sudo mount --bind $(pwd)/system/system/system_ext $(pwd)/system/system_ext
-          ls system/system_ext
+          ls system/system/product
+          ls system/system/system_ext
           qemu-img convert -O raw ${{ matrix.arch }}/userdata.vhdx userdata.img
           sudo mount -o loop userdata.img userdata
       - name: Integrate Magisk
@@ -542,32 +483,6 @@ jobs:
           echo -e "Integrate Magisk done\n"
       - name: Remove FOSS Apps
         run: |
-          sudo rm -rf system/system/app/com.google.android.gsf
-          sudo rm -rf system/system/app/com.aurora.adroid
-          sudo rm -rf system/system/app/com.aurora.store
-          sudo rm -rf system/system/app/com.etesync.syncadapter
-          sudo rm -rf system/system/app/is.xyz.mpv
-          sudo rm -rf system/system/app/me.jfenn.alarmio
-          sudo rm -rf system/system/app/org.microg.gms.droidguard
-          sudo rm -rf system/system/app/org.microg.nlp.backend.ichnaea
-          sudo rm -rf system/system/app/org.microg.nlp.backend.nominatim
-          sudo rm -rf system/system/app/org.schabi.newpipe
-          sudo rm -rf system/system/app/ws.xsoh.etar
-          sudo rm -rf system/system/priv-app/AuroraServices_v1.1.1
-          sudo rm -rf system/system/priv-app/com.google.android.gms
-          sudo rm -rf system/system/priv-app/com.android.vending
-          sudo rm -rf system/system/product/app/Etar
-          sudo rm -rf system/system/product/priv-app/Contacts
-          sudo rm -rf system/system/product/app/ExactCalculator
-          sudo rm -rf system/system/product/priv-app/Eleven
-          sudo rm -rf system/system/app/com.simplemobiletools.gallery.pro
-          sudo rm -rf system/system/app/NotePad
-          sudo rm -rf system/system/app/org.bromite.bromite
-          sudo rm -rf system/system/app/com.google.android.webview
-          sudo rm -rf system/system/app/com.android.webview
-          #sudo mv system/system/xbin/su system/system/xbin/suold
-          sudo ls system/system/xbin
-          wget -qO- "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/archive/$GITHUB_REF.tar.gz" | sudo tar --wildcards -zxvf- --strip-component=2 '*/${{ matrix.arch }}/system/*'
           sudo find system/system/priv-app -type d -exec chmod 0755 {} \;
           sudo find system/system/priv-app -type f -exec chmod 0644 {} \;
           sudo find system/system/priv-app -exec chcon --reference=system/system/priv-app {} \;
@@ -642,17 +557,11 @@ jobs:
               with open(prop, 'w') as f:
                   f.write(str(p))
 
-          for sec, prop in {"system": "system/system/build.prop", "product": "system/product/build.prop", "system_ext": "system/system_ext/build.prop", "vendor": "system/vendor/build.prop", "odm": "system/vendor/odm/etc/build.prop"}.items():
+          for sec, prop in {"system": "system/system/build.prop", "product": "system/system/product/build.prop", "system_ext": "system/system/system_ext/build.prop", "vendor": "system/vendor/build.prop", "odm": "system/vendor/odm/etc/build.prop"}.items():
               fix_prop(sec, prop)
       - name: Umount images
         run: |
           sudo umount system/vendor
-          sudo umount -l system/product
-          sudo rm -rf system/product
-          sudo mv system/product_ln system/product
-          sudo umount -l system/system_ext
-          sudo rm -rf system/system_ext
-          sudo mv system/system_ext_ln system/system_ext
           sudo umount system
           sudo umount userdata
           qemu-img convert -o subformat=dynamic -f raw -O vhdx userdata.img ${{ matrix.arch }}/userdata.vhdx
@@ -837,12 +746,7 @@ jobs:
           else
             name1="-${root}"
           fi
-          if [[ "$variant" = "none" || "$variant" = "" ]]; then
-            name2="-NoGApps"
-          else
-            name2="-${variant}"
-          fi
-          echo "artifact_name=WD${name1}${name2}_${{ matrix.arch }}" >> $GITHUB_ENV
+          echo "artifact_name=WayDroid-11${name1}${name2}-${{ matrix.arch }}" >> $GITHUB_ENV
       - name: Upload Waydroid
         uses: actions/upload-artifact@v4
         with:

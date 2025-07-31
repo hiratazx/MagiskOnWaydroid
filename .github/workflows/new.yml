@@ -1,4 +1,4 @@
-name: Modify Waydroid (A11 & A13)
+name: Modify Waydroid (A13)
 on:
   push:
     paths-ignore:
@@ -14,35 +14,34 @@ on:
         default: "x64"
         type: choice
         options:
-          - x64
+        - x64
       and_ver:
         description: "Android Version"
         required: true
-        default: "11"
+        default: "13"
         type: choice
         options:
-          - 11
-          - 13
+        - 13
       magisk_apk:
         description: "Magisk version"
         required: true
         default: "26.1"
         type: choice
         options:
-          - 24.1
-          - 24.2
-          - 24.3
-          - 25.2
-          - 26.1
-          - canary
+        - 24.1
+        - 24.2
+        - 24.3
+        - 25.2
+        - 26.1
+        - canary
       root_sol:
         description: "Root solution"
         required: true
         default: "magisk"
         type: choice
         options:
-          - magisk
-          - none
+        - magisk
+        - none
 
 jobs:
   matrix:
@@ -68,16 +67,10 @@ jobs:
                 matrix.arch = ["x64"];
                 break;
             }
-            let and_ver = "${{ github.event.inputs.and_ver }}"
-            switch ( and_ver ) {
-              case "11":
-                matrix.and_ver = ["11"];
-                break;
-              case "13":
-                matrix.and_ver = ["13"];
-                break;
+            let release_type = "${{ github.event.inputs.release_type }}"
+            switch ( release_type ) {
               default:
-                matrix.and_ver = ["11", "13"];
+                matrix.release_type = ["WIS"];
                 break;
             }
             let magisk_apk = "${{ github.event.inputs.magisk_apk }}"
@@ -88,20 +81,8 @@ jobs:
               case "canary":
                 matrix.magisk_apk = ["canary"];
                 break;
-              case "24.1":
-                matrix.magisk_apk = ["24.1"];
-                break;
-              case "24.2":
-                matrix.magisk_apk = ["24.2"];
-                break;
-              case "24.3":
-                matrix.magisk_apk = ["24.3"];
-                break;
-              case "26.1":
-                matrix.magisk_apk = ["26.1"];
-                break;
               default:
-                matrix.magisk_apk = ["26.1"];
+                matrix.magisk_apk = ["25.2"];
                 break;
             }
             let root_sol = "${{ github.event.inputs.root_sol }}"
@@ -110,8 +91,6 @@ jobs:
                 matrix.root_sol = ["magisk"];
                 break;
             }
-            // Removed release_type as it was always defaulting to "WIS" and not explicitly used
-            // If you need it, re-add it from github.event.inputs and add it to the matrix object
             core.setOutput("matrix",JSON.stringify(matrix));
 
   build:
@@ -120,8 +99,6 @@ jobs:
     strategy:
       matrix: ${{fromJson(needs.matrix.outputs.matrix)}}
     steps:
-      - uses: actions/checkout@v4 # Add this to checkout your repository code
-
       - name: Dependencies
         run: |
           pip3 install beautifulsoup4 lxml
@@ -134,17 +111,21 @@ jobs:
           import urllib.request
           import zipfile
           import os
-          import sys
+          import sys # Import sys to exit the script on error
 
           # Define the direct download links from your GitHub releases
           xaml_link = "https://github.com/hiratazx/MagiskOnWaydroid/releases/download/wsa/Microsoft.UI.Xaml.2.8_8.2501.31001.0_x64__8wekyb3d8bbwe.Appx"
           vclibs_link = "https://github.com/hiratazx/MagiskOnWaydroid/releases/download/wsa/Microsoft.VCLibs.140.00.UWPDesktop_14.0.33728.0_x64__8wekyb3d8bbwe.Appx"
           wsa_link = "https://github.com/hiratazx/MagiskOnWaydroid/releases/download/wsa/MicrosoftCorporationII.WindowsSubsystemForAndroid_2305.40000.4.0_neutral_._8wekyb3d8bbwe.Msixbundle"
 
+          # The architecture is still needed for extracting the correct package from the MSIXBUNDLE
+          # and for the final output directory.
           arch = "${{ matrix.arch }}"
 
           print("Starting direct downloads from GitHub Releases...", flush=True)
 
+          # --- Download Microsoft.UI.Xaml ---
+          # Changed output filename to match the 'cp' command in the next step
           out_file_xaml = "xaml.appx"
           print(f"Downloading UI XAML: {xaml_link}", flush=True)
           try:
@@ -155,6 +136,8 @@ jobs:
               print(f"Error downloading UI XAML: {e}", flush=True)
               sys.exit(1)
 
+          # --- Download Microsoft.VCLibs ---
+          # Changed output filename to match the 'cp' command in the next step
           out_file_vclibs = "vclibs.appx"
           print(f"Downloading VCLibs: {vclibs_link}", flush=True)
           try:
@@ -165,6 +148,9 @@ jobs:
               print(f"Error downloading VCLibs: {e}", flush=True)
               sys.exit(1)
 
+          # --- Download WSA MSIXBundle ---
+          # We'll download it with its correct extension but keep the 'wsa_zip' name
+          # for consistency with your existing unzipping logic.
           out_file_wsa_bundle = "wsa.msixbundle"
           print(f"Downloading WSA: {wsa_link}", flush=True)
           try:
@@ -177,44 +163,73 @@ jobs:
 
           print("All files downloaded successfully.", flush=True)
 
+          # --- Unzip WSA MSIXBundle ---
+          # This will hold the name of the extracted .msix file (e.g., MicrosoftCorporationII.WindowsSubsystemForAndroid_....msix)
           extracted_wsa_msix_filename = ""
           try:
               with zipfile.ZipFile(out_file_wsa_bundle) as zip_file:
+                  # Find the correct arch-specific .msix file within the msixbundle
                   found_main_package = False
                   for f in zip_file.filelist:
+                      # Check for the architecture and the .msix extension
                       if arch in f.filename.lower() and f.filename.endswith(".msix"):
-                          extracted_wsa_msix_filename = f.filename
+                          extracted_wsa_msix_filename = f.filename # This is the full path within the bundle
                           print(f"Found main WSA package: {extracted_wsa_msix_filename}", flush=True)
                           found_main_package = True
-                          break
+                          break # Found the main package, no need to continue
 
                   if not found_main_package:
                       print(f"Error: Could not find the main WSA package for arch {arch} within {out_file_wsa_bundle}. Exiting.", flush=True)
                       sys.exit(1)
 
+                  # Extract the main .msix package
                   if not os.path.isfile(extracted_wsa_msix_filename):
                       print(f"Unzipping main WSA package to {extracted_wsa_msix_filename}", flush=True)
                       zip_file.extract(extracted_wsa_msix_filename)
+                      # Extract version and release number
+                      # Example filename: MicrosoftCorporationII.WindowsSubsystemForAndroid_2305.40000.4.0_neutral_._8wekyb3d8bbwe.msix
                       parts = os.path.basename(extracted_wsa_msix_filename).split("_")
                       if len(parts) >= 2:
-                          ver = parts[1]
+                          ver = parts[1] # e.g., 2305.40000.4.0
                           with open(os.environ['GITHUB_ENV'], 'a') as g:
                               g.write(f'WSA_VER={ver}\n')
                           print(f"Set WSA_VER={ver}", flush=True)
+                      # The 'release' part is often the 4th underscore-separated part.
+                      # For "2305.40000.4.0_neutral_._8wekyb3d8bbwe.Msixbundle", the 4th part is empty.
+                      # For "WsaPackage_*_ARM64_Release-Nightly.msix", it might be "Release-Nightly".
+                      # Let's try to infer it if possible, otherwise, keep it simple.
+                      # Based on your previous `WSA_REL: Release-Nightly`, we'll hardcode it or derive it
+                      # if the filename format allows. Given the new direct link, the filename is:
+                      # MicrosoftCorporationII.WindowsSubsystemForAndroid_2305.40000.4.0_neutral_._8wekyb3d8bbwe.Msixbundle
+                      # This filename doesn't contain "Release-Nightly" directly.
+                      # If you specifically need "Release-Nightly" for WSA_REL, you might need to hardcode it or
+                      # get it from another source. For now, I'll remove the `WSA_REL` setting if it's not in the filename.
+                      # If it's critical, please specify how to derive it from the new filename.
+                      # For now, let's just use the version.
+                      # if len(parts) >= 4:
+                      #     rel = parts[3].split(".")[0]
+                      #     with open(os.environ['GITHUB_ENV'], 'a') as g:
+                      #         g.write(f'WSA_REL={rel}\n')
+                      #     print(f"Set WSA_REL={rel}", flush=True)
 
+
+                  # Extract language and scale resources
                   for f in zip_file.filelist:
                       if 'language' in f.filename.lower() or 'scale' in f.filename.lower():
                           print(f"Extracting resource file: {f.filename}", flush=True)
+                          # Extract the inner .appx/.msix file first
                           extracted_resource_path = f.filename
                           zip_file.extract(extracted_resource_path)
 
+                          # Now open the extracted resource file as a zip
                           try:
                               with zipfile.ZipFile(extracted_resource_path) as inner_zip:
+                                  # Get a meaningful name for the resource pack (e.g., 'language_en-us')
                                   name_parts = os.path.basename(extracted_resource_path).split("-", 1)
                                   if len(name_parts) > 1:
                                       resource_name = name_parts[1].split(".")[0]
                                   else:
-                                      resource_name = "unknown_resource"
+                                      resource_name = "unknown_resource" # Fallback
 
                                   for g in inner_zip.filelist:
                                       if g.filename == 'resources.pri':
@@ -223,6 +238,7 @@ jobs:
                                               os.makedirs(pri_dir)
                                           extracted_pri_path = os.path.join(pri_dir, g.filename)
                                           inner_zip.extract(g, pri_dir)
+                                          # Rename to include the resource pack name
                                           new_pri_name = os.path.join(pri_dir, f'{resource_name}.pri')
                                           os.rename(extracted_pri_path, new_pri_name)
                                           print(f"Extracted resource pack {new_pri_name}", flush=True)
@@ -232,36 +248,44 @@ jobs:
                                               os.makedirs(xml_dir)
                                           extracted_xml_path = os.path.join(xml_dir, g.filename)
                                           inner_zip.extract(g, xml_dir)
+                                          # Rename to include the resource pack name
                                           new_xml_name = os.path.join(xml_dir, f'{resource_name}.xml')
                                           os.rename(extracted_xml_path, new_xml_name)
                                           print(f"Extracted AppxManifest {new_xml_name}", flush=True)
                           except zipfile.BadZipFile:
                               print(f"Warning: Could not open {extracted_resource_path} as a zip file. Skipping inner extraction.", flush=True)
                           finally:
+                              # Clean up the extracted inner appx/zip file
                               if os.path.exists(extracted_resource_path):
                                   os.remove(extracted_resource_path)
+
 
           except Exception as e:
               print(f"Error during WSA unzipping process from {out_file_wsa_bundle}: {e}", flush=True)
               sys.exit(1)
 
-          if extracted_wsa_msix_filename:
+          # --- Final Extraction of the main WSA package ---
+          # The main .msix file might have already been extracted above, but this ensures it's unzipped
+          # into the final architecture directory.
+          if extracted_wsa_msix_filename: # Only proceed if the main MSIX was found and extracted
               try:
                   if not os.path.isdir(arch):
                       print(f"Final unzipping of {extracted_wsa_msix_filename} to directory {arch}", flush=True)
+                      # You need to open the extracted_wsa_msix_filename again as it's a separate file
                       with zipfile.ZipFile(extracted_wsa_msix_filename) as final_zip:
                            final_zip.extractall(arch)
                       print(f"Cleaned up {extracted_wsa_msix_filename}", flush=True)
-                      os.remove(extracted_wsa_msix_filename)
+                      os.remove(extracted_wsa_msix_filename) # Clean up the extracted .msix file after its contents are extracted
                   else:
                       print(f"Directory {arch} already exists, skipping final extraction from {extracted_wsa_msix_filename}.", flush=True)
                       if os.path.exists(extracted_wsa_msix_filename):
-                         os.remove(extracted_wsa_msix_filename)
+                         os.remove(extracted_wsa_msix_filename) # Still clean up the intermediate .msix file
               except Exception as e:
                   print(f"Error during final extraction of {extracted_wsa_msix_filename}: {e}", flush=True)
                   sys.exit(1)
           else:
               print("Skipping final extraction: main WSA package not found/extracted.", flush=True)
+
 
           print("done", flush=True)
       - name: Download Magisk
@@ -273,171 +297,84 @@ jobs:
           import json
           import requests
 
-          magisk_apk_input = """${{ github.event.inputs.magisk_apk }}"""
-          magisk_download_url = ""
+          magisk_apk = """${{ github.event.inputs.magisk_apk }}"""
           
-          if not magisk_apk_input:
-              magisk_apk_input = "26.1" # Default if not provided
-
-          if magisk_apk_input == "24.1":
-              magisk_download_url = "https://github.com/topjohnwu/Magisk/releases/download/v24.1/Magisk-v24.1.apk"
-          elif magisk_apk_input == "24.2":
-              magisk_download_url = "https://github.com/topjohnwu/Magisk/releases/download/v24.2/Magisk-v24.2.apk"
-          elif magisk_apk_input == "24.3":
-              magisk_download_url = "https://github.com/topjohnwu/Magisk/releases/download/v24.3/Magisk-v24.3.apk"
-          elif magisk_apk_input == "25.2":
-              magisk_download_url = "https://github.com/topjohnwu/Magisk/releases/download/v25.2/Magisk-v25.2.apk"
-          elif magisk_apk_input == "26.1":
-              magisk_download_url = "https://github.com/topjohnwu/Magisk/releases/download/v26.1/Magisk-v26.1.apk"
-          elif magisk_apk_input == "canary":
-              magisk_download_url = "https://raw.githubusercontent.com/topjohnwu/magisk-files/canary/app-debug.apk"
-          elif magisk_apk_input == "stable" or magisk_apk_input == "beta": # These options are not in your workflow_dispatch, but handled by your script
-              try:
-                  response = requests.get(f"https://github.com/topjohnwu/magisk-files/raw/master/{magisk_apk_input}.json")
-                  response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
-                  magisk_download_url = json.loads(response.content)['magisk']['link']
-              except requests.exceptions.RequestException as e:
-                  print(f"Error fetching Magisk {magisk_apk_input} info: {e}", flush=True)
-                  sys.exit(1)
-          else:
-              print(f"Error: Unknown Magisk APK version specified: {magisk_apk_input}", flush=True)
-              sys.exit(1)
+          if not magisk_apk:
+              magisk_apk = "26.1"
+          if magisk_apk == "24.1":
+              magisk_apk = "https://github.com/topjohnwu/Magisk/releases/download/v24.1/Magisk-v24.1.apk"
+          if magisk_apk == "24.2":
+              magisk_apk = "https://github.com/topjohnwu/Magisk/releases/download/v24.2/Magisk-v24.2.apk"
+          if magisk_apk == "24.3":
+              magisk_apk = "https://github.com/topjohnwu/Magisk/releases/download/v24.3/Magisk-v24.3.apk"
+          if magisk_apk == "25.2":
+              magisk_apk = "https://github.com/topjohnwu/Magisk/releases/download/v25.2/Magisk-v25.2.apk"
+          if magisk_apk == "26.1":
+              magisk_apk = "https://github.com/topjohnwu/Magisk/releases/download/v26.1/Magisk-v26.1.apk"
+          if magisk_apk == "canary":
+              magisk_apk = "https://raw.githubusercontent.com/topjohnwu/magisk-files/canary/app-debug.apk"
+          if magisk_apk == "stable" or magisk_apk == "beta":
+              magisk_apk = json.loads(requests.get(f"https://github.com/topjohnwu/magisk-files/raw/master/{magisk_apk}.json").content)['magisk']['link']
+          
 
           out_file = "magisk.zip"
+
           arch = "${{ matrix.arch }}"
+
           abi_map={"x64" : ["x86_64", "x86"], "arm64" : ["arm64-v8a", "armeabi-v7a"]}
 
           if not os.path.isfile(out_file):
-              print(f"Downloading Magisk from: {magisk_download_url}", flush=True)
-              try:
-                  urllib.request.urlretrieve(magisk_download_url, out_file)
-              except Exception as e:
-                  print(f"Error downloading Magisk: {e}", flush=True)
-                  sys.exit(1)
-          else:
-              print(f"Magisk file {out_file} already exists, skipping download.", flush=True)
+              urllib.request.urlretrieve(magisk_apk, out_file)
 
-          def extract_as(zip_file, name, as_name, dir_path):
-              try:
-                  info = zip_file.getinfo(name)
-                  info.filename = as_name
-                  zip_file.extract(info, dir_path)
-                  print(f"Extracted {name} as {as_name} to {dir_path}", flush=True)
-              except KeyError:
-                  print(f"Warning: {name} not found in Magisk zip. Skipping.", flush=True)
-              except Exception as e:
-                  print(f"Error extracting {name}: {e}", flush=True)
-                  sys.exit(1)
+          def extract_as(zip, name, as_name, dir):
+              info = zip.getinfo(name)
+              info.filename = as_name
+              zip.extract(info, dir)
               
-          if not os.path.isdir("magisk"):
-              os.makedirs("magisk")
-
-          try:
-              with zipfile.ZipFile(out_file) as zip_obj:
-                  extract_as(zip_obj, f"lib/{ abi_map[arch][0] }/libmagisk64.so", "magisk64", "magisk")
-                  extract_as(zip_obj, f"lib/{ abi_map[arch][1] }/libmagisk32.so", "magisk32", "magisk")
-                  
-                  standalone_policy = False
-                  try:
-                      zip_obj.getinfo(f"lib/{ abi_map[arch][0] }/libmagiskpolicy.so")
-                      standalone_policy = True
-                  except KeyError:
-                      pass # libmagiskpolicy.so not found, use libmagiskinit.so instead
-
-                  extract_as(zip_obj, f"lib/{ abi_map[arch][0] }/libmagiskinit.so", "magiskinit", "magisk")
-                  
-                  if standalone_policy:
-                      extract_as(zip_obj, f"lib/{ abi_map[arch][0] }/libmagiskpolicy.so", "magiskpolicy", "magisk")
-                  else:
-                      extract_as(zip_obj, f"lib/{ abi_map[arch][0] }/libmagiskinit.so", "magiskpolicy", "magisk") # Use magiskinit as policy if standalone not found
-                  
-                  extract_as(zip_obj, f"lib/{ abi_map[arch][0] }/libmagiskboot.so", "magiskboot", "magisk")
-                  extract_as(zip_obj, f"lib/{ abi_map[arch][0] }/libbusybox.so", "busybox", "magisk")
-                  
-                  # This part extracts magiskpolicy to the current directory for patching
-                  if standalone_policy:
-                      extract_as(zip_obj, f"lib/{ abi_map['x64'][0] }/libmagiskpolicy.so", "magiskpolicy", ".")
-                  else:
-                      extract_as(zip_obj, f"lib/{ abi_map['x64'][0] }/libmagiskinit.so", "magiskpolicy", ".")
-                  
-                  extract_as(zip_obj, f"assets/boot_patch.sh", "boot_patch.sh", "magisk")
-                  extract_as(zip_obj, f"assets/util_functions.sh", "util_functions.sh", "magisk")
-          except Exception as e:
-              print(f"Error processing Magisk zip: {e}", flush=True)
-              sys.exit(1)
-
+          # changes to standalone_policy since v24.3
+          # extract_as(zip, f"lib/{ abi_map[arch][0] }/libmagiskinit.so", "magiskpolicy", "magisk")
+          # extract_as(zip, f"lib/{ abi_map['x64'][0] }/libmagiskinit.so", "magiskpolicy", ".")
+              
+          with zipfile.ZipFile(out_file) as zip:
+              extract_as(zip, f"lib/{ abi_map[arch][0] }/libmagisk64.so", "magisk64", "magisk")
+              extract_as(zip, f"lib/{ abi_map[arch][1] }/libmagisk32.so", "magisk32", "magisk")
+              standalone_policy = False
+              try:
+                zip.getinfo(f"lib/{ abi_map[arch][0] }/libmagiskpolicy.so")
+                standalone_policy = True
+              except:
+                pass
+              extract_as(zip, f"lib/{ abi_map[arch][0] }/libmagiskinit.so", "magiskinit", "magisk")
+              if standalone_policy:
+                extract_as(zip, f"lib/{ abi_map[arch][0] }/libmagiskpolicy.so", "magiskpolicy", "magisk")
+              else:
+                extract_as(zip, f"lib/{ abi_map[arch][0] }/libmagiskinit.so", "magiskpolicy", "magisk")
+              extract_as(zip, f"lib/{ abi_map[arch][0] }/libmagiskboot.so", "magiskboot", "magisk")
+              extract_as(zip, f"lib/{ abi_map[arch][0] }/libbusybox.so", "busybox", "magisk")
+              if standalone_policy:
+                extract_as(zip, f"lib/{ abi_map['x64'][0] }/libmagiskpolicy.so", "magiskpolicy", ".")
+              else:
+                extract_as(zip, f"lib/{ abi_map['x64'][0] }/libmagiskinit.so", "magiskpolicy", ".")
+              extract_as(zip, f"assets/boot_patch.sh", "boot_patch.sh", "magisk")
+              extract_as(zip, f"assets/util_functions.sh", "util_functions.sh", "magisk")
       - name: Replace system and vendor
         run: |
           rm -rf ${{ matrix.arch }}/{system,vendor}.img
-
-          system_img_url=""
-          vendor_img_url=""
-
-          case "${{ matrix.and_ver }}" in
-            "11")
-              echo "Selected Android 11 images (LineageOS 18.1)."
-              system_img_url="https://sourceforge.net/projects/waydroid/files/images/system/lineage/waydroid_x86_64/lineage-18.1-20250628-GAPPS-waydroid_x86_64-system.zip/download"
-              vendor_img_url="https://sourceforge.net/projects/waydroid/files/images/vendor/waydroid_x86_64/lineage-18.1-20250628-MAINLINE-waydroid_x86_64-vendor.zip/download"
-              ;;
-            "13")
-              echo "Selected Android 13 images (LineageOS 20.0 inferred dates)."
-              # Ensure these links are correct and exist!
-              system_img_url="https://sourceforge.net/projects/waydroid/files/images/system/lineage/waydroid_x86_64/lineage-20.0-20250726-GAPPS-waydroid_x86_64-system.zip/download"
-              vendor_img_url="https://sourceforge.net/projects/waydroid/files/images/vendor/waydroid_x86_64/lineage-20.0-20250726-MAINLINE-waydroid_x86_64-vendor.zip/download"
-              ;;
-            *)
-              echo "Error: Unsupported Android version specified: ${{ matrix.and_ver }}. Exiting."
-              exit 1
-              ;;
-          esac
-
-          echo "Attempting to download system.zip from: $system_img_url"
-          wget -q "$system_img_url" -O system.zip || { echo "Failed to download system.zip. Check the URL: $system_img_url"; exit 1; }
-          echo "system.zip downloaded."
-
-          echo "Attempting to download vendor.zip from: $vendor_img_url"
-          wget -q "$vendor_img_url" -O vendor.zip || { echo "Failed to download vendor.zip. Check the URL: $vendor_img_url"; exit 1; }
-          echo "vendor.zip downloaded."
-
-          echo "Extracting system.zip to ${{ matrix.arch }}/"
-          7z x system.zip -o${{ matrix.arch }}/ || { echo "Failed to extract system.zip. Ensure it's a valid zip file."; exit 1; }
-
-          echo "Extracting vendor.zip to ${{ matrix.arch }}/"
-          7z x vendor.zip -o${{ matrix.arch }}/ || { echo "Failed to extract vendor.zip. Ensure it's a valid zip file."; exit 1; }
-
-          echo "Waydroid images replaced successfully."
-        shell: bash
-      - name: Expand images (pre-mount file expansion)
+          wget -q https://sourceforge.net/projects/waydroid/files/images/system/lineage/waydroid_x86_64/lineage-20.0-20250726-GAPPS-waydroid_x86_64-system.zip/download -O system.zip
+          wget -q https://sourceforge.net/projects/waydroid/files/images/vendor/waydroid_x86_64/lineage-20.0-20250726-MAINLINE-waydroid_x86_64-vendor.zip/download -O vendor.zip
+          7z x system.zip -o${{ matrix.arch }}/
+          7z x vendor.zip -o${{ matrix.arch }}/
+      - name: Expand images
+        if: ${{ matrix.gapps_variant != 'none' && matrix.gapps_variant != '' }}
         run: |
-          CURRENT_SYSTEM_SIZE_KB=$(du -sk ${{ matrix.arch }}/system.img | cut -f1)
-          ADDITIONAL_SPACE_KB=2097152
-          TARGET_SYSTEM_SIZE_KB=$((CURRENT_SYSTEM_SIZE_KB + ADDITIONAL_SPACE_KB))
-
-          truncate -s ${TARGET_SYSTEM_SIZE_KB}K ${{ matrix.arch }}/system.img
+          mkdir gapps
+          unzip -p gapps.zip {Core,GApps}/'*.lz' | tar --lzip -C gapps -xvf - -i --strip-components=2 --exclude='setupwizardtablet-x86_64' --exclude='packageinstallergoogle-all' --exclude='speech-common' --exclude='markup-lib-arm' --exclude='markup-lib-arm64' --exclude='markup-all' --exclude='setupwizarddefault-x86_64' --exclude='pixellauncher-all' --exclude='pixellauncher-common'
           e2fsck -yf ${{ matrix.arch }}/system.img
-          resize2fs ${{ matrix.arch }}/system.img
-
-          CURRENT_VENDOR_SIZE_KB=$(du -sk ${{ matrix.arch }}/vendor.img | cut -f1)
-          ADDITIONAL_VENDOR_SPACE_KB=524288
-          TARGET_VENDOR_SIZE_KB=$((CURRENT_VENDOR_SIZE_KB + ADDITIONAL_VENDOR_SPACE_KB))
-
-          truncate -s ${TARGET_VENDOR_SIZE_KB}K ${{ matrix.arch }}/vendor.img
-          e2fsck -yf ${{ matrix.arch }}/vendor.img
-          resize2fs ${{ matrix.arch }}/vendor.img
-      
-      - name: Verify extracted WSA files
+          resize2fs ${{ matrix.arch }}/system.img $(( $(du -sB512 gapps | cut -f1) + $(du -sB512 ${{ matrix.arch }}/system.img | cut -f1) ))s
+      - name: Expand vendor
         run: |
-          echo "Listing contents of ${{ matrix.arch }}/:"
-          ls -l ${{ matrix.arch }}/
-          if [ -f "${{ matrix.arch }}/userdata.vhdx" ]; then
-            echo "userdata.vhdx found in ${{ matrix.arch }}/."
-          else
-            echo "ERROR: userdata.vhdx NOT found in ${{ matrix.arch }}/."
-            echo "Please check the contents of the downloaded WSA package."
-            exit 1
-          fi
-        shell: bash
-
+          e2fsck -yf ${{ matrix.arch }}/vendor.img
+          resize2fs ${{ matrix.arch }}/vendor.img 512M
       - name: Mount images
         run: |
           sudo mkdir system
@@ -446,12 +383,12 @@ jobs:
           sudo mount -o loop ${{ matrix.arch }}/vendor.img system/vendor
           sudo mv system/product system/product_ln
           sudo mkdir system/product
-          sudo mount --bind $(pwd)/system/system/product $(pwd)/product
-          ls product
+          sudo mount --bind $(pwd)/system/system/product $(pwd)/system/product
+          ls system/product
           sudo mv system/system_ext system/system_ext_ln
           sudo mkdir system/system_ext
-          sudo mount --bind $(pwd)/system/system/system_ext $(pwd)/system_ext
-          ls system_ext
+          sudo mount --bind $(pwd)/system/system/system_ext $(pwd)/system/system_ext
+          ls system/system_ext
           qemu-img convert -O raw ${{ matrix.arch }}/userdata.vhdx userdata.img
           sudo mount -o loop userdata.img userdata
       - name: Integrate Magisk
@@ -492,9 +429,11 @@ jobs:
           sudo find "system/debug_ramdisk" -type f -exec chown root:root {} \;
           sudo find "system/debug_ramdisk" -type f -exec setfattr -n security.selinux -v "u:object_r:magisk_file:s0" {} \; || abort
           echo "/debug_ramdisk(/.*)?    u:object_r:magisk_file:s0" | sudo tee -a "system/vendor/etc/selinux/vendor_file_contexts"
-          echo '/data/adb/magisk(/.*)?    u:object_r:magisk_file:s0' | sudo tee -a "system/vendor/etc/selinux/vendor_file_contexts"
+          echo '/data/adb/magisk(/.*)?   u:object_r:magisk_file:s0' | sudo tee -a "system/vendor/etc/selinux/vendor_file_contexts"
+          #ls -R .
           sudo LD_LIBRARY_PATH="linker/x86_64" "magisk/magiskpolicy" --load "system/vendor/etc/selinux/precompiled_sepolicy" --save "system/vendor/etc/selinux/precompiled_sepolicy" --magisk || abort
 
+          
           sudo tee -a "system/system/etc/init/hw/init.rc" <<EOF >/dev/null
           on post-fs-data
               mkdir /dev/debug_ramdisk_mirror
@@ -548,7 +487,84 @@ jobs:
           done
 
           echo -e "Integrate Magisk done\n"
+      - name: Remove FOSS Apps
+        run: |
+          sudo find system/system/priv-app -type d -exec chmod 0755 {} \;
+          sudo find system/system/priv-app -type f -exec chmod 0644 {} \;
+          sudo find system/system/priv-app -exec chcon --reference=system/system/priv-app {} \;
+      - name: Fix GApps prop
+        if: ${{ matrix.gapps_variant != 'none' && matrix.gapps_variant != '' }}
+        shell: sudo python {0}
+        run: |
+          from __future__ import annotations
+          from io import TextIOWrapper
+          from os import system
+          from typing import OrderedDict
 
+
+          class Prop(OrderedDict):
+              def __init__(self, file: TextIOWrapper) -> None:
+                  super().__init__()
+                  for i, line in enumerate(file.read().splitlines(False)):
+                      if '=' in line:
+                          k, v = line.split('=', 2)
+                          self[k] = v
+                      else:
+                          self[f".{i}"] = line
+
+              def __str__(self) -> str:
+                  return '\n'.join([v if k.startswith('.') else f"{k}={v}" for k, v in self.items()])
+
+              def __iadd__(self, other: str) -> Prop:
+                  self[f".{len(self)}"] = other
+                  return self
+
+
+          new_props = {
+              ("product", "brand"): "google",
+              ("product", "manufacturer"): "Google",
+              ("build", "product"): "redfin",
+              ("product", "name"): "redfin",
+              ("product", "device"): "redfin",
+              ("product", "model"): "Pixel 5",
+              ("build", "flavor"): "redfin-user"
+          }
+
+
+          def description(sec: str, p: Prop) -> str:
+              return f"{p[f'ro.{sec}.build.flavor']} {p[f'ro.{sec}.build.version.release_or_codename']} {p[f'ro.{sec}.build.id']} {p[f'ro.{sec}.build.version.incremental']} {p[f'ro.{sec}.build.tags']}"
+
+
+          def fingerprint(sec: str, p: Prop) -> str:
+              return f"""{p[f"ro.product.{sec}.brand"]}/{p[f"ro.product.{sec}.name"]}/{p[f"ro.product.{sec}.device"]}:{p[f"ro.{sec}.build.version.release"]}/{p[f"ro.{sec}.build.id"]}/{p[f"ro.{sec}.build.version.incremental"]}:{p[f"ro.{sec}.build.type"]}/{p[f"ro.{sec}.build.tags"]}"""
+
+
+          def fix_prop(sec, prop):
+              print(f"fixing {prop}", flush=True)
+              with open(prop, 'r') as f:
+                  p = Prop(f)
+
+              p += "# extra prop added by MagiskOnWSA"
+
+              for k, v in new_props.items():
+                  p[f"ro.{k[0]}.{k[1]}"] = v
+                  
+                  if k[0] == "build":
+                      p[f"ro.{sec}.{k[0]}.{k[1]}"] = v
+                  elif k[0] == "product":
+                      p[f"ro.{k[0]}.{sec}.{k[1]}"] = v
+
+              p["ro.build.description"] = description(sec, p)
+              p[f"ro.build.fingerprint"] = fingerprint(sec, p)
+              p[f"ro.{sec}.build.description"] = description(sec, p)
+              p[f"ro.{sec}.build.fingerprint"] = fingerprint(sec, p)
+              p[f"ro.bootimage.build.fingerprint"] = fingerprint(sec, p)
+
+              with open(prop, 'w') as f:
+                  f.write(str(p))
+
+          for sec, prop in {"system": "system/system/build.prop", "product": "system/product/build.prop", "system_ext": "system/system_ext/build.prop", "vendor": "system/vendor/build.prop", "odm": "system/vendor/odm/etc/build.prop"}.items():
+              fix_prop(sec, prop)
       - name: Umount images
         run: |
           sudo umount system/vendor
@@ -733,6 +749,7 @@ jobs:
           sudo rm -rf -- ${{ matrix.arch }}/!(system.img|vendor.img)
       - name: Generate artifact name
         run: |
+          variant="${{ matrix.gapps_variant }}"
           root="${{ github.event.inputs.root_sol }}"
           if [[ "$root" = "none" ]]; then
             name1=""
